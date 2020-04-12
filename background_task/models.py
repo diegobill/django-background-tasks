@@ -89,7 +89,7 @@ class TaskManager(models.Manager):
     def new_task(self, task_name, args=None, kwargs=None,
                  run_at=None, priority=0, queue=None, verbose_name=None,
                  creator=None, repeat=None, repeat_until=None,
-                 remove_existing_tasks=False):
+                 remove_existing_tasks=False, sequential_queue=False):
         """
         If `remove_existing_tasks` is True, all unlocked tasks with the identical task hash will be removed.
         The attributes `repeat` and `repeat_until` are not supported at the moment.
@@ -113,6 +113,7 @@ class TaskManager(models.Manager):
                     creator=creator,
                     repeat=repeat or Task.NEVER,
                     repeat_until=repeat_until,
+                    sequential_queue=sequential_queue
                     )
 
     def get_task(self, task_name, args=None, kwargs=None):
@@ -166,7 +167,7 @@ class Task(models.Model):
     # the "name" of the queue this is to be run on
     queue = models.CharField(max_length=190, db_index=True,
                              null=True, blank=True)
-
+    sequential_queue = models.BooleanField(default=False)
     # how many times the task has been tried
     attempts = models.IntegerField(default=0, db_index=True)
     # when the task last failed
@@ -247,7 +248,9 @@ class Task(models.Model):
         '''
         self.last_error = self._extract_error(type, err, traceback)
         self.increment_attempts()
-        if self.has_reached_max_attempts() or isinstance(err, InvalidTaskError):
+        if not self.sequential_queue and (
+            self.has_reached_max_attempts() or isinstance(err, InvalidTaskError)
+        ):
             self.failed_at = timezone.now()
             logger.warning('Marking task %s as failed', self)
             completed = self.create_completed_task()
