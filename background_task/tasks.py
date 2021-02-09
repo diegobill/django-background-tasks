@@ -40,6 +40,8 @@ def bg_runner(proxy_task, task=None, *args, **kwargs):
                 task = task_qs[0]
         if func is None:
             raise BackgroundTaskError("Function is None, can't execute!")
+        if '_background_task' in func.__code__.co_varnames:
+            kwargs['_background_task'] = task
         func(*args, **kwargs)
 
         if task:
