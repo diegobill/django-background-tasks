@@ -260,16 +260,10 @@ class Task(models.Model):
             task_failed.send(sender=self.__class__, task_id=self.id, completed_task=completed)
             self.delete()
         else:
-            if self.repeat:
-                new_run_at = self.run_at + timedelta(seconds=self.repeat)
-                while new_run_at < timezone.now():
-                    new_run_at += timedelta(seconds=self.repeat)
-                self.run_at = new_run_at
-            else:
-                backoff = timedelta(seconds=(self.attempts ** 4) + 5)
-                self.run_at = timezone.now() + backoff
-
-            logger.warning('Rescheduling task %s at %s', self, self.run_at)
+            backoff = timedelta(seconds=(self.attempts ** 4) + 5)
+            self.run_at = timezone.now() + backoff
+            logger.warning('Rescheduling task %s for %s later at %s', self,
+                backoff, self.run_at)
             task_rescheduled.send(sender=self.__class__, task=self)
             self.locked_by = None
             self.locked_at = None
