@@ -247,20 +247,21 @@ class Task(models.Model):
     def reschedule(self, type, err, traceback):
         '''
         Set a new time to run the task in future, or create a CompletedTask and delete the Task
-        if it has reached the maximum of allowed attempts
+        if it is an InvalidTaskError
         '''
         self.last_error = self._extract_error(type, err, traceback)
         self.increment_attempts()
-        if not self.sequential_queue and (
-            self.has_reached_max_attempts() or isinstance(err, InvalidTaskError)
-        ):
+        if isinstance(err, InvalidTaskError):
             self.failed_at = timezone.now()
             logger.warning('Marking task %s as failed', self)
             completed = self.create_completed_task()
             task_failed.send(sender=self.__class__, task_id=self.id, completed_task=completed)
             self.delete()
         else:
-            backoff = timedelta(seconds=(self.attempts ** 4) + 5)
+            if self.attempts > 12:
+                backoff = timedelta(seconds=(12 ** 4) + 5)
+            else:
+                backoff = timedelta(seconds=(self.attempts ** 4) + 5)
             self.run_at = timezone.now() + backoff
             logger.warning('Rescheduling task %s for %s later at %s', self,
                 backoff, self.run_at)
