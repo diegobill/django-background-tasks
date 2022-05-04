@@ -251,7 +251,9 @@ class Task(models.Model):
         '''
         self.last_error = self._extract_error(type, err, traceback)
         self.increment_attempts()
-        if isinstance(err, InvalidTaskError):
+        if not self.sequential_queue and (
+            self.has_reached_max_attempts() or isinstance(err, InvalidTaskError)
+        ):
             self.failed_at = timezone.now()
             logger.warning('Marking task %s as failed', self)
             completed = self.create_completed_task()
