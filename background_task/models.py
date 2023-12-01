@@ -139,7 +139,7 @@ class Task(models.Model):
     # the json encoded parameters to pass to the task
     task_params = models.TextField()
     # a sha1 hash of the name and params, to lookup already scheduled tasks
-    task_hash = models.CharField(max_length=40, db_index=True)
+    task_hash = models.CharField(max_length=40, db_index=True, unique=True)
 
     verbose_name = models.CharField(max_length=255, null=True, blank=True)
 
