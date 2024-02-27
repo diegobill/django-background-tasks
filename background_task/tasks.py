@@ -8,7 +8,7 @@ import logging
 import os
 import sys
 
-from django.db.utils import OperationalError
+from django.db.utils import OperationalError, DEFAULT_DB_ALIAS
 from django.utils import timezone
 from six import python_2_unicode_compatible
 
@@ -91,7 +91,7 @@ class Tasks(object):
         self._pool_runner = PoolRunner(bg_runner, app_settings.BACKGROUND_TASK_ASYNC_THREADS)
 
     def background(self, name=None, schedule=None, queue=None,
-                   remove_existing_tasks=False, sequential_queue=False):
+                   remove_existing_tasks=False, sequential_queue=False, db_alias=DEFAULT_DB_ALIAS):
         '''
         decorator to turn a regular function into
         something that gets run asynchronously in
@@ -110,7 +110,7 @@ class Tasks(object):
             if not _name:
                 _name = '%s.%s' % (fn.__module__, fn.__name__)
             proxy = self._task_proxy_class(_name, fn, schedule, queue,
-                                           remove_existing_tasks, self._runner, sequential_queue)
+                                           remove_existing_tasks, self._runner, sequential_queue, db_alias)
             self._tasks[_name] = proxy
             return proxy
         if fn:
@@ -218,15 +218,15 @@ class DBTaskRunner(object):
     def schedule(self, task_name, args, kwargs, run_at=None,
                  priority=0, action=TaskSchedule.SCHEDULE, queue=None,
                  verbose_name=None, creator=None,
-                 repeat=None, repeat_until=None, remove_existing_tasks=False, sequential_queue=False):
+                 repeat=None, repeat_until=None, remove_existing_tasks=False, sequential_queue=False, db_alias=DEFAULT_DB_ALIAS):
         '''Simply create a task object in the database'''
         task = Task.objects.new_task(task_name, args, kwargs, run_at, priority,
                                      queue, verbose_name, creator, repeat,
-                                     repeat_until, remove_existing_tasks, sequential_queue)
+                                     repeat_until, remove_existing_tasks, sequential_queue, db_alias=db_alias)
         if action != TaskSchedule.SCHEDULE:
             task_hash = task.task_hash
             now = timezone.now()
-            unlocked = Task.objects.unlocked(now)
+            unlocked = Task.objects.unlocked(now, db_alias=db_alias)
             existing = unlocked.filter(task_hash=task_hash)
             if queue:
                 existing = existing.filter(queue=queue)
@@ -238,7 +238,7 @@ class DBTaskRunner(object):
                 if existing.count():
                     return
 
-        task.save()
+        task.save(using=db_alias)
         signals.task_created.send(sender=self.__class__, task=task)
         return task
 
@@ -278,7 +278,7 @@ class DBTaskRunner(object):
 
 @python_2_unicode_compatible
 class TaskProxy(object):
-    def __init__(self, name, task_function, schedule, queue, remove_existing_tasks, runner, sequential_queue):
+    def __init__(self, name, task_function, schedule, queue, remove_existing_tasks, runner, sequential_queue, db_alias=DEFAULT_DB_ALIAS):
         self.name = name
         self.now = self.task_function = task_function
         self.runner = runner
@@ -286,6 +286,7 @@ class TaskProxy(object):
         self.queue = queue
         self.remove_existing_tasks = remove_existing_tasks
         self.sequential_queue = sequential_queue
+        self.db_alias = db_alias
 
 
     def __call__(self, *args, **kwargs):
@@ -305,7 +306,7 @@ class TaskProxy(object):
         return self.runner.schedule(self.name, args, kwargs, run_at, priority,
                                     action, queue, verbose_name, creator,
                                     repeat, repeat_until,
-                                    remove_existing_tasks, sequential_queue)
+                                    remove_existing_tasks, sequential_queue, self.db_alias)
 
     def __str__(self):
         return 'TaskProxy(%s)' % self.name

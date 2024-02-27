@@ -11,6 +11,7 @@ from compat.models import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
 from django.db.models import Q
+from django.db.utils import DEFAULT_DB_ALIAS
 from django.utils import timezone
 from six import python_2_unicode_compatible
 
@@ -67,9 +68,9 @@ class TaskManager(models.Manager):
                 ready = self.none()
         return ready
 
-    def unlocked(self, now):
+    def unlocked(self, now, db_alias=DEFAULT_DB_ALIAS):
         max_run_time = app_settings.BACKGROUND_TASK_MAX_RUN_TIME
-        qs = self.get_queryset()
+        qs = self.get_queryset().using(db_alias)
         expires_at = now - timedelta(seconds=max_run_time)
         unlocked = Q(locked_by=None) | Q(locked_at__lt=expires_at)
         return qs.filter(unlocked)
@@ -92,7 +93,7 @@ class TaskManager(models.Manager):
     def new_task(self, task_name, args=None, kwargs=None,
                  run_at=None, priority=0, queue=None, verbose_name=None,
                  creator=None, repeat=None, repeat_until=None,
-                 remove_existing_tasks=False, sequential_queue=False):
+                 remove_existing_tasks=False, sequential_queue=False, db_alias=DEFAULT_DB_ALIAS):
         """
         If `remove_existing_tasks` is True, all unlocked tasks with the identical task hash will be removed.
         The attributes `repeat` and `repeat_until` are not supported at the moment.
@@ -105,7 +106,7 @@ class TaskManager(models.Manager):
         s = "%s%s" % (task_name, task_params)
         task_hash = sha1(s.encode('utf-8')).hexdigest()
         if remove_existing_tasks:
-            Task.objects.filter(task_hash=task_hash, locked_at__isnull=True).delete()
+            Task.objects.using(db_alias).filter(task_hash=task_hash, locked_at__isnull=True).delete()
         return Task(task_name=task_name,
                     task_params=task_params,
                     task_hash=task_hash,
