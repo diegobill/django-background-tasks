@@ -13,6 +13,7 @@ from background_task.tasks import tasks, autodiscover
 from background_task.utils import SignalManager
 from compat import close_connection
 from background_task.models import Task
+from background_task.settings import app_settings
 
 
 logger = logging.getLogger(__name__)
@@ -100,7 +101,18 @@ class Command(BaseCommand):
         start_time = time.time()
 
         # unlock the locked tasks before starting
-        Task.objects.filter(Q(locked_at__isnull=False) | Q(locked_by__isnull=False)).update(locked_at=None, locked_by=None)
+        #
+        # Scoped to the rows THIS worker serves, mirroring Task.objects.find_available(),
+        # which only ever picks `sequential_queue = not BACKGROUND_TASK_RUN_ASYNC`. Without
+        # the same predicate a worker unlocks rows it can never run - including rows another
+        # worker is executing right now. Such a row is re-picked while the live run still
+        # holds its application-level (Redis) lock, and a task that returns early on that
+        # lock is recorded as successful: the row this unlock exists to re-queue is deleted
+        # instead, and a self-chaining schedule never arms its next occurrence.
+        Task.objects.filter(
+            Q(locked_at__isnull=False) | Q(locked_by__isnull=False),
+            sequential_queue=not app_settings.BACKGROUND_TASK_RUN_ASYNC,
+        ).update(locked_at=None, locked_by=None)
 
         while (duration <= 0) or (time.time() - start_time) <= duration:
             if sig_manager.kill_now:
